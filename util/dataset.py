@@ -6,11 +6,16 @@ class CaloDataset(Dataset):
 
     def __init__(self, data_file_path,
                     Nx = 128, Ny = 128, Nz = 64,
-                    downsample_factors: list | None = None):
+                    downsample_factors: list | None = None,
+                    drop_last: int = 32,
+                    layer: int | None = None):
 
         self.Nx = Nx
         self.Ny = Ny
         self.Nz = Nz
+        self.drop_last = drop_last
+        self.layer = layer
+        
         if downsample_factors is not None:
             assert len(downsample_factors) == 3
             for dsf in downsample_factors:
@@ -57,12 +62,17 @@ class CaloDataset(Dataset):
 
         voxels = self.pad_single_example(e, idx_x, idx_y, idx_z)
 
+        if self.drop_last > 0:
+            voxels = voxels[:, :, :-self.drop_last]
+
         if downsample:
             voxels = self.downsample_single_example(voxels, self.dsfs)
 
-        ### put layer dimension first (channel)
-        voxels = voxels.permute(2, 0, 1)
+        if self.layer is not None:
+            ### using only one layer for 2D FNO
+            voxels = voxels[:, :, self.layer:self.layer+1].squeeze(-1)
 
-        voxels = voxels[:1, :, :] # HACK: using only first layer for 2D FNO
+        ### put z before x and y and insert channel dimension
+        voxels = voxels.permute(2, 0, 1).unsqueeze(0)
 
         return voxels

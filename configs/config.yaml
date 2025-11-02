@@ -1,0 +1,7 @@
+### FNO
+modes: 32
+vis_channels: 1
+hidden_channels: 16
+proj_channels: 16
+
+### FM: TODO

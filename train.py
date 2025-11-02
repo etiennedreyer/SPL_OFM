@@ -4,10 +4,10 @@ import argparse
 
 from util.dataset import CaloDataset
 
-def get_data(data_path, splits, batch_size=256):
+def get_data(data_path, splits, batch_size=256, workers=6):
 
     # Load dataset
-    dataset = CaloDataset(data_path, downsample_factors=[2,2,2])
+    dataset = CaloDataset(data_path, downsample_factors=[4,4,4], layer=None)
     total_size = len(dataset)
     
     # Calculate split sizes
@@ -26,28 +26,23 @@ def get_data(data_path, splits, batch_size=256):
     # Create data loaders
     dls = {k: DataLoader(Subset(dataset, range(v[0], v[1])), 
                             batch_size=batch_size, 
-                            shuffle=(k=='train')) 
+                            shuffle=(k=='train'), num_workers=workers)
                          for k, v in ranges.items()
                     }
 
     return dataset, dls
 
-def get_model():
+def get_model(config):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
     from models.fno import FNO
 
-    # FNO hyperparameters
-    modes = 32 
-    width = 128
-    mlp_width = 128
-
-    model = FNO(modes, vis_channels=1, 
-                hidden_channels=width, 
-                proj_channels=mlp_width, 
-                x_dim=2, t_scaling=1)
+    model = FNO(config['modes'], vis_channels=config['vis_channels'], 
+                hidden_channels=config['hidden_channels'], 
+                proj_channels=config['proj_channels'], 
+                x_dim=3, t_scaling=1)
     model.to(device)
 
     Nparams = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -56,8 +51,9 @@ def get_model():
     from ofm_OT_likelihood import OFMModel
 
     # GP hyperparameters
-    n_x = 64
-    dims = [n_x, n_x]
+    n_z = 8
+    n_xy = 32
+    dims = [n_z, n_xy, n_xy]
     kernel_length=0.01
     kernel_variance=1
     nu = 0.5 # default
@@ -81,18 +77,19 @@ def train(ofm_model, dls, args):
     save_path = Path(args.save_path)
 
     ofm_model.train(dls['train'], optimizer, scheduler=scheduler, epochs=args.epochs, 
-               eval_int=int(0), save_int=int(2), generate=False, 
-               saved_model=True, save_path=save_path)
+                    test_loader=dls['val'], eval_int=10,
+                    save_int=int(2), saved_model=True, save_path=save_path)
 
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data', '-d', type=str, required=True, help='Path to the data file')
+    parser.add_argument('--config', '-c', type=str, default='./configs/config.yaml', help='Path to the config file')
     parser.add_argument('--train_split', '-ts', type=float, default=0.8, help='Fraction of data to use for training')
     parser.add_argument('--val_split', '-vs', type=float, default=0.1, help='Fraction of data to use for validation')
     parser.add_argument('--test_split', '-es', type=float, default=0.1, help='Fraction of data to use for testing')
     parser.add_argument('--epochs', '-e', type=int, default=100, help='Number of training epochs')
-    parser.add_argument('--batch_size', '-bs', type=int, default=256, help='Batch size for training')
+    parser.add_argument('--batch_size', '-bs', type=int, default=64, help='Batch size for training')
     parser.add_argument('--save_path', '-sp', type=str, default='./model_checkpoints', help='Path to save model checkpoints')
 
     return parser.parse_args()
@@ -109,6 +106,9 @@ if __name__ == "__main__":
     ds, dls = get_data(args.data, splits, args.batch_size)
 
     # Get model
-    ofm_model = get_model()
+    import yaml
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+    ofm_model = get_model(config)
 
     train(ofm_model, dls, args)
