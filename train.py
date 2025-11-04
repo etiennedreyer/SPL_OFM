@@ -2,12 +2,18 @@ import torch
 from torch.utils.data import Dataset, DataLoader, Subset
 import argparse
 
-from util.dataset import CaloDataset
+from util.dataset import CaloDataset, CaloChallengeDataset
 
-def get_data(data_path, splits, batch_size=256, workers=6):
+def get_data(config, splits, batch_size=256, workers=6):
 
+    data_path = config['file_path']
     # Load dataset
-    dataset = CaloDataset(data_path, downsample_factors=[4,4,4], layer=None)
+    if data_path.endswith('.h5') or data_path.endswith('.hdf5'):
+        dataset = CaloChallengeDataset(config, entry_start=config.get('entry_start', 0), entry_stop=config.get('entry_stop', None))
+    elif data_path.endswith('.root'):
+        dataset = CaloDataset(data_path, downsample_factors=[4,4,4], layer=None)
+    else:
+        raise ValueError("Requires .root or .h5 data file")
     total_size = len(dataset)
     
     # Calculate split sizes
@@ -37,9 +43,14 @@ def get_model(config):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
-    from models.fno import FNO
+    from models.fno import FNO, FNO_cond
 
-    model = FNO(config['modes'], vis_channels=config['vis_channels'], 
+    model_class = FNO
+    if config['file_path'].split('.')[-1] in ['h5', 'hdf5']:
+        print("Using conditional FNO model")
+        model_class = FNO_cond
+
+    model = model_class(config['modes'], vis_channels=config['vis_channels'], 
                 hidden_channels=config['hidden_channels'], 
                 proj_channels=config['proj_channels'], 
                 x_dim=3, t_scaling=1)
@@ -51,9 +62,11 @@ def get_model(config):
     from ofm_OT_likelihood import OFMModel
 
     # GP hyperparameters
-    n_z = 8
-    n_xy = 32
-    dims = [n_z, n_xy, n_xy]
+    # n_z = 8
+    # n_xy = 32
+    dims = [config['dims']['z'],
+            config['dims']['x'],
+            config['dims']['y']]
     kernel_length=0.01
     kernel_variance=1
     nu = 0.5 # default
@@ -83,7 +96,7 @@ def train(ofm_model, dls, args):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data', '-d', type=str, required=True, help='Path to the data file')
+    # parser.add_argument('--data', '-d', type=str, required=True, help='Path to the data file')
     parser.add_argument('--config', '-c', type=str, default='./configs/config.yaml', help='Path to the config file')
     parser.add_argument('--train_split', '-ts', type=float, default=0.8, help='Fraction of data to use for training')
     parser.add_argument('--val_split', '-vs', type=float, default=0.1, help='Fraction of data to use for validation')
@@ -103,12 +116,13 @@ if __name__ == "__main__":
         'val': args.val_split,
         'test': args.test_split
     }
-    ds, dls = get_data(args.data, splits, args.batch_size)
 
-    # Get model
     import yaml
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
+
+    ds, dls = get_data(config, splits, args.batch_size)
+
     ofm_model = get_model(config)
 
     train(ofm_model, dls, args)

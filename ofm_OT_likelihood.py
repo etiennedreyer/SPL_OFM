@@ -95,6 +95,10 @@ class OFMModel:
             tr_loss = 0.0
 
             for batch in train_loader:
+                conds = None
+                if isinstance(batch, list) or isinstance(batch, tuple):
+                    batch, conds = batch
+                    conds = conds.to(device)
                 batch = batch.to(device)
                 batch_size = batch.shape[0]
 
@@ -118,7 +122,10 @@ class OFMModel:
 
                 # Get model output
                 #print('t before the model :{}'.format(t))
-                model_out = model(t, x_t)
+                if conds is not None:
+                    model_out = model(t, x_t, conds)
+                else:
+                    model_out = model(t, x_t)
 
                 # Evaluate loss and do gradient step
                 optimizer.zero_grad()
@@ -148,6 +155,10 @@ class OFMModel:
                     if evaluate:
                         te_loss = 0.0
                         for batch in test_loader:
+                            conds = None
+                            if isinstance(batch, list) or isinstance(batch, tuple):
+                                batch, conds = batch
+                                conds = conds.to(device)
                             batch = batch.to(device)
                             batch_size = batch.shape[0]
 
@@ -164,7 +175,10 @@ class OFMModel:
                             x_t = x_t.to(device)
                             target = target.to(device)  
                 
-                            model_out = model(t, x_t)
+                            if conds is not None:
+                                model_out = model(t, x_t, conds)
+                            else:
+                                model_out = model(t, x_t)
 
                             loss = torch.mean( (model_out - target)**2 )
 
@@ -196,7 +210,7 @@ class OFMModel:
 
 
     @torch.no_grad()
-    def sample(self, dims, n_channels=1, n_samples=1, n_eval=2, return_path=False, rtol=1e-5, atol=1e-5, method = 'dopri5'):
+    def sample(self, dims, conds=None, n_channels=1, n_samples=1, n_eval=2, return_path=False, rtol=1e-5, atol=1e-5, method = 'dopri5'):
         # n_eval: how many timesteps in [0, 1] to evaluate. Should be >= 2. 
         # dims: dimensionality of domain, e.g. [64, 64] for 64x64 images
 
@@ -204,8 +218,12 @@ class OFMModel:
         #grid = make_grid(dims)
         #x0 = self.gp.sample(grid, dims, n_samples=n_samples, n_channels=n_channels)
         x0 = self.gp.sample(dims, n_samples=n_samples, n_channels=n_channels)
+
+        model = self.model
+        if conds is not None:
+            model = lambda x0, t: self.model(t, x0, conds)
         
-        out = odeint(self.model, x0, t, method=method, rtol=rtol, atol=atol)
+        out = odeint(model, x0, t, method=method, rtol=rtol, atol=atol)
 
         if return_path:
             return out
