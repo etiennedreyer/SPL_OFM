@@ -4,6 +4,7 @@ import argparse
 
 from util.dataset import CaloDataset, CaloChallengeDataset
 
+
 def get_data(config, splits, batch_size=256, workers=6):
 
     data_path = config['file_path']
@@ -38,7 +39,31 @@ def get_data(config, splits, batch_size=256, workers=6):
 
     return dataset, dls
 
-def get_model(config):
+
+def load_checkpoint(model, checkpoint_path):
+
+    for param in model.parameters():
+        param.requires_grad = False
+
+    from neuralop.layers.spectral_convolution import SpectralConv
+    torch.serialization.add_safe_globals([torch._C._nn.gelu])
+    torch.serialization.add_safe_globals([SpectralConv])
+
+    print(f"Loading model checkpoint from {checkpoint_path}...")
+    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=True)
+
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        state_dict = checkpoint['model_state_dict']
+    else:
+        state_dict = checkpoint
+
+    if '_metadata' in state_dict:
+        del state_dict['_metadata']
+
+    model.load_state_dict(state_dict)
+
+
+def get_model(config, checkpoint=None):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
@@ -54,6 +79,10 @@ def get_model(config):
                 hidden_channels=config['hidden_channels'], 
                 proj_channels=config['proj_channels'], 
                 x_dim=3, t_scaling=1)
+    
+    if checkpoint is not None:
+        load_checkpoint(model, checkpoint)
+
     model.to(device)
 
     Nparams = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -64,9 +93,7 @@ def get_model(config):
     # GP hyperparameters
     # n_z = 8
     # n_xy = 32
-    dims = [config['dims']['z'],
-            config['dims']['x'],
-            config['dims']['y']]
+    dims = config['dims']
     kernel_length=0.01
     kernel_variance=1
     nu = 0.5 # default
@@ -94,15 +121,49 @@ def train(ofm_model, dls, args):
                     save_int=int(2), saved_model=True, save_path=save_path)
 
 
+def generate(ofm_model, test_dataset, config, N):
+
+    n_eval = 24
+    method = 'euler'
+
+    conds = torch.stack([test_dataset[i][1] for i in range(N)], dim=0).to(ofm_model.device)
+
+    samples = ofm_model.sample(config['dims'], conds=conds, n_channels=1,
+                            n_samples=N, n_eval=n_eval, method=method)
+
+    incident_energies = CaloChallengeDataset.transform(conds[:,0], 
+                                                       'incident_energies', 
+                                                       config['transforms'],
+                                                       inverse=True).cpu().numpy()
+
+    shower_energies = CaloChallengeDataset.transform(samples.reshape(N, -1),
+                                                      'showers', 
+                                                      config['transforms'],
+                                                      inverse=True).cpu().numpy()
+
+    import h5py
+    dataset_file = h5py.File('your_output_dataset_name.hdf5', 'w')
+    dataset_file.create_dataset('incident_energies',
+                    data=incident_energies,
+                    compression='gzip')
+    dataset_file.create_dataset('showers',
+                    data=shower_energies,
+                    compression='gzip')
+    dataset_file.close()
+
+
 def get_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--data', '-d', type=str, required=True, help='Path to the data file')
     parser.add_argument('--config', '-c', type=str, default='./configs/config.yaml', help='Path to the config file')
+    parser.add_argument('--mode', '-m', type=str, default='train', choices=['train', 'generate'], help='Mode: train or generate')
+    parser.add_argument('--num_samples', '-n', type=int, default=10000, help='Number of samples to generate in generation mode')
     parser.add_argument('--train_split', '-ts', type=float, default=0.8, help='Fraction of data to use for training')
     parser.add_argument('--val_split', '-vs', type=float, default=0.1, help='Fraction of data to use for validation')
     parser.add_argument('--test_split', '-es', type=float, default=0.1, help='Fraction of data to use for testing')
     parser.add_argument('--epochs', '-e', type=int, default=100, help='Number of training epochs')
     parser.add_argument('--batch_size', '-bs', type=int, default=64, help='Batch size for training')
+    parser.add_argument('--checkpoint', '-ckpt', type=str, default=None, help='Path to model checkpoint for generation')
     parser.add_argument('--save_path', '-sp', type=str, default='./model_checkpoints', help='Path to save model checkpoints')
 
     return parser.parse_args()
@@ -121,8 +182,15 @@ if __name__ == "__main__":
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
 
+    config['dims'] = [config['dims']['z'],
+                      config['dims']['x'],
+                      config['dims']['y']]
+
     ds, dls = get_data(config, splits, args.batch_size)
 
-    ofm_model = get_model(config)
+    ofm_model = get_model(config, checkpoint=args.checkpoint)
 
-    train(ofm_model, dls, args)
+    if args.mode == 'train':
+        train(ofm_model, dls, args)
+    elif args.mode == 'generate':
+        generate(ofm_model, ds, config, args.num_samples)

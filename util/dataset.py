@@ -108,7 +108,7 @@ class CaloChallengeDataset(Dataset):
 
         self.data["showers"] = self.reshape(self.data["showers"])
 
-        self.data = {k: self.transform(v, k) for k, v in self.data.items()}
+        self.data = {k: self.transform(v, k, self.transform_dict) for k, v in self.data.items()}
 
 
     def __str__(self):
@@ -187,7 +187,7 @@ class CaloChallengeDataset(Dataset):
 
         # transform each static feature and reshape
         self.static_features = {
-            k: self.reshape(self.transform(v, k))
+            k: self.reshape(self.transform(v, k, self.transform_dict))
             for k, v in self.static_features.items()
         }
 
@@ -199,9 +199,10 @@ class CaloChallengeDataset(Dataset):
         elif x.dim() == 1:
             return x.reshape(*shape)
 
-    def transform(self, x, var, inverse=False):
+    @staticmethod
+    def transform(x, var, transform_dict, inverse=False):
 
-        if var not in self.transform_dict:
+        if var not in transform_dict:
             raise ValueError(f"Variable {var} not in transforms")
 
         transforms = {
@@ -213,16 +214,16 @@ class CaloChallengeDataset(Dataset):
             "standard_inv": lambda x, d: x * d["std"] + d["mean"],
         }
 
-        if self.transform_dict[var]["type"] not in transforms:
+        if transform_dict[var]["type"] not in transforms:
             raise NotImplementedError(
-                f"Transform {self.transform_dict[var]['type']} not implemented"
+                f"Transform {transform_dict[var]['type']} not implemented"
             )
-        
-        key = self.transform_dict[var]["type"]
+
+        key = transform_dict[var]["type"]
         if inverse:
             key += "_inv"
 
-        return transforms[key](x, self.transform_dict[var])
+        return transforms[key](x, transform_dict[var])
 
     def __len__(self) -> int:
         return self.n_events

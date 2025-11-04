@@ -221,7 +221,8 @@ class OFMModel:
 
         model = self.model
         if conds is not None:
-            model = lambda x0, t: self.model(t, x0, conds)
+            from functools import partial
+            model = partial(self.model, conds=conds)
         
         out = odeint(model, x0, t, method=method, rtol=rtol, atol=atol)
 
