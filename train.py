@@ -3,6 +3,9 @@ from torch.utils.data import Dataset, DataLoader, Subset
 import argparse
 
 from util.dataset import CaloDataset, CaloChallengeDataset
+import h5py
+from tqdm import tqdm
+
 
 
 def get_data(config, splits, batch_size=256, workers=6):
@@ -30,11 +33,13 @@ def get_data(config, splits, batch_size=256, workers=6):
     ranges['val'] = (ranges['train'][1], ranges['train'][1] + splits['val'])
     ranges['test'] = (ranges['val'][1], ranges['val'][1] + splits['test'])
 
+    
+
     # Create data loaders
     dls = {k: DataLoader(Subset(dataset, range(v[0], v[1])), 
                             batch_size=batch_size, 
                             shuffle=(k=='train'), num_workers=workers)
-                         for k, v in ranges.items()
+                         for k, v in ranges.items() if v[1] > v[0]
                     }
 
     return dataset, dls
@@ -121,35 +126,57 @@ def train(ofm_model, dls, args):
                     save_int=int(2), saved_model=True, save_path=save_path)
 
 
-def generate(ofm_model, test_dataset, config, N):
+def generate(ofm_model, dl_test, config, N):
 
     n_eval = 24
     method = 'euler'
 
-    conds = torch.stack([test_dataset[i][1] for i in range(N)], dim=0).to(ofm_model.device)
+    for test_batch in dl_test:
+        break  # Get the first batch only
 
-    samples = ofm_model.sample(config['dims'], conds=conds, n_channels=1,
-                            n_samples=N, n_eval=n_eval, method=method)
+    Nvoxels = len(test_batch[0][0].flatten())
+    bs = dl_test.batch_size
 
-    incident_energies = CaloChallengeDataset.transform(conds[:,0], 
-                                                       'incident_energies', 
-                                                       config['transforms'],
-                                                       inverse=True).cpu().numpy()
+    with h5py.File('your_output_dataset_name.hdf5', 'w') as f:
+        
+        ds_energies = f.create_dataset('incident_energies',
+                                        shape=(0, 1),
+                                        maxshape=(N, 1),
+                                        chunks=(bs, 1),
+                                        dtype='f4',
+                                        compression='gzip')
 
-    shower_energies = CaloChallengeDataset.transform(samples.reshape(N, -1),
-                                                      'showers', 
-                                                      config['transforms'],
-                                                      inverse=True).cpu().numpy()
+        ds_showers = f.create_dataset('showers',
+                                        shape=(0, Nvoxels),
+                                        maxshape=(N, Nvoxels),
+                                        chunks=(bs, Nvoxels),
+                                        dtype='f4',
+                                        compression='gzip')
 
-    import h5py
-    dataset_file = h5py.File('your_output_dataset_name.hdf5', 'w')
-    dataset_file.create_dataset('incident_energies',
-                    data=incident_energies,
-                    compression='gzip')
-    dataset_file.create_dataset('showers',
-                    data=shower_energies,
-                    compression='gzip')
-    dataset_file.close()
+        for batch in tqdm(dl_test):
+
+            conds = batch[1].to(ofm_model.device)
+            current_bs = len(conds)
+
+            samples = ofm_model.sample(config['dims'], conds=conds, n_channels=1,
+                                       n_samples=current_bs, n_eval=n_eval, method=method)
+
+            incident_energies = CaloChallengeDataset.transform(conds, 
+                                                            'incident_energies', 
+                                                            config['transforms'],
+                                                            inverse=True).cpu().numpy()
+
+            shower_energies = CaloChallengeDataset.transform(samples.reshape(current_bs, -1),
+                                                            'showers', 
+                                                            config['transforms'],
+                                                            inverse=True).cpu().numpy()
+
+            new_size = ds_showers.shape[0] + current_bs
+            ds_showers.resize(new_size, axis=0)
+            ds_energies.resize(new_size, axis=0)
+
+            ds_showers[-current_bs:, :] = shower_energies
+            ds_energies[-current_bs:, :] = incident_energies
 
 
 def get_args():
@@ -193,4 +220,4 @@ if __name__ == "__main__":
     if args.mode == 'train':
         train(ofm_model, dls, args)
     elif args.mode == 'generate':
-        generate(ofm_model, ds, config, args.num_samples)
+        generate(ofm_model, dls['test'], config, args.num_samples)
