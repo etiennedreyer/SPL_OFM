@@ -115,8 +115,8 @@ def get_model(config, checkpoint=None):
 
 def train(ofm_model, dls, args):
 
-    optimizer = torch.optim.Adam(ofm_model.model.parameters(), lr=1e-3)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.epochs//10, gamma=0.8)
+    optimizer = torch.optim.Adam(ofm_model.model.parameters(), lr=5e-4)
+    scheduler = None #torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.epochs//10, gamma=0.7)
 
     from pathlib import Path
     save_path = Path(args.save_path)

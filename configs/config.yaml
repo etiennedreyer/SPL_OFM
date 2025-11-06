@@ -3,7 +3,7 @@ file_path: /storage/agrp/dreyet/FastCaloSim/FastCalNO/data/dataset_2_1.hdf5
 # file_path: /storage/agrp/dreyet/FastCaloSim/FastCalNO/data/dataset_2_2.hdf5
 particle: electron
 binning: /storage/agrp/dreyet/FastCaloSim/FastCalNO/SPL_OFM/configs/binning_dataset_2.xml
-# entry_stop: 10000
+# entry_stop: 2000
 
 dims:
   x: 16
@@ -13,12 +13,15 @@ dims:
 
 transforms:
   incident_energies:
-    type: minmax
-    min: 1000
-    max: 1000000
+    type: log
+    offset: 0
+    norm: 7
+    shift: -6.9
   showers:
     type: log
     offset: 1
+    norm: 8.5
+    shift: 0
   r:
     type: standard
     mean: 20.925

@@ -208,8 +208,8 @@ class CaloChallengeDataset(Dataset):
         transforms = {
             "minmax": lambda x, d: (x - d["min"]) / (d["max"] - d["min"]),
             "minmax_inv": lambda x, d: x * (d["max"] - d["min"]) + d["min"],
-            "log": lambda x, d: torch.log(x + d.get("offset", 0)),
-            "log_inv": lambda x, d: torch.exp(x) - d.get("offset", 0),
+            "log": lambda x, d: (torch.log(x + d.get("offset", 0)) + d.get("shift", 0)) / d.get("norm", 1),
+            "log_inv": lambda x, d: torch.exp(x * d.get("norm", 1) - d.get("shift", 0)) - d.get("offset", 0),
             "standard": lambda x, d: (x - d["mean"]) / d["std"],
             "standard_inv": lambda x, d: x * d["std"] + d["mean"],
         }
