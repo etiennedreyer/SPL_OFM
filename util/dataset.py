@@ -84,12 +84,12 @@ class CaloDataset(Dataset):
 from util.XMLHandler import XMLHandler
 
 class CaloChallengeDataset(Dataset):
-    def __init__(self, config, entry_start=0, entry_stop=None):
+    def __init__(self, file_path, config, entry_start=0, entry_stop=None):
         if isinstance(config, str):
             with open(config, "r") as f:
                 config = yaml.safe_load(f)
+        self.file_path = file_path
         self.config = config
-        self.file_path = config["file_path"]
         self.particle = config['particle']
         self.transform_dict = config.get('transforms', {})
         self.init_vars()

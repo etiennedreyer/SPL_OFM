@@ -28,7 +28,7 @@ class OFMModel:
         self.ot_sampler = OTPlanSampler(method="exact")
         self.sigma_min = sigma_min
 
-    def sample_gp_noise(self, x_data):
+    def sample_gp_noise(self, x_data, return_indices=False):
         # sample GP noise with OT 
         
         batch_size = x_data.shape[0]
@@ -42,9 +42,15 @@ class OFMModel:
         # GP noise : [batch_size, n_channels, *dims]
         #x_0 = self.gp.sample_from_prior(query_points, dims, n_samples=batch_size, n_channels=n_channels) 
         x_0 = self.gp.sample_from_prior(dims, n_samples=batch_size, n_channels=n_channels) 
-        x_0, x_data = self.ot_sampler.sample_plan(x_0, x_data)
-        
-        return x_0, x_data
+        # x_0, x_data = self.ot_sampler.sample_plan(x_0, x_data) # Do by hand to get indices
+        pi = self.ot_sampler.get_map(x_0, x_data)
+        i, j = self.ot_sampler.sample_map(pi, x_0.shape[0], replace=True)
+        x_0, x_data = x_0[i], x_data[j]
+
+        if return_indices:
+            return x_0, x_data, i, j
+        else:
+            return x_0, x_data
         
     def simulate(self, t, x_0, x_data):
         # t: [batch_size,]
@@ -108,7 +114,7 @@ class OFMModel:
                     first = False
                     
                 # GP noise with OT reorder
-                x_0, x_data = self.sample_gp_noise(batch)
+                x_0, x_data, _idx_x_0, idx_x_data = self.sample_gp_noise(batch, return_indices=True)
         
                 # t ~ Unif[0, 1)
                 t = torch.rand(batch_size, device=device)
@@ -123,6 +129,7 @@ class OFMModel:
                 # Get model output
                 #print('t before the model :{}'.format(t))
                 if conds is not None:
+                    conds = conds[idx_x_data]
                     model_out = model(t, x_t, conds)
                 else:
                     model_out = model(t, x_t)
@@ -163,7 +170,7 @@ class OFMModel:
                             batch_size = batch.shape[0]
 
                             # GP noise with OT reorder
-                            x_0, x_data = self.sample_gp_noise(batch)
+                            x_0, x_data, _idx_x_0, idx_x_data = self.sample_gp_noise(batch, return_indices=True)
 
                             # t ~ Unif[0, 1)
                             t = torch.rand(batch_size, device=device)
@@ -176,6 +183,7 @@ class OFMModel:
                             target = target.to(device)  
                 
                             if conds is not None:
+                                conds = conds[idx_x_data]
                                 model_out = model(t, x_t, conds)
                             else:
                                 model_out = model(t, x_t)

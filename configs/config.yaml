@@ -1,9 +1,14 @@
 ### Dataset
-file_path: /storage/agrp/dreyet/FastCaloSim/FastCalNO/data/dataset_2_1.hdf5
-# file_path: /storage/agrp/dreyet/FastCaloSim/FastCalNO/data/dataset_2_2.hdf5
+file_paths:
+  train: /storage/agrp/dreyet/FastCaloSim/FastCalNO/data/dataset_2_1.hdf5
+  val: /storage/agrp/dreyet/FastCaloSim/FastCalNO/data/dataset_2_2.hdf5
+  test: /storage/agrp/dreyet/FastCaloSim/FastCalNO/data/dataset_2_2.hdf5
+entry_ranges:
+  train: [0, null]
+  val: [0, 10000]
+  test: [0, null]
 particle: electron
 binning: /storage/agrp/dreyet/FastCaloSim/FastCalNO/SPL_OFM/configs/binning_dataset_2.xml
-# entry_stop: 2000
 
 dims:
   x: 16
